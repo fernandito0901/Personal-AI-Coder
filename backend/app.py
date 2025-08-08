@@ -93,7 +93,7 @@ jobs = JobManager()
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Tauri file:// origin compatibility
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -103,7 +103,6 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_startup():
     load_dotenv()
-    # hydrate OPENAI_API_KEY from Windows Credential Manager
     if keyring:
         try:
             val = keyring.get_password("ai-coder", "OPENAI_API_KEY")
@@ -111,6 +110,11 @@ async def on_startup():
                 os.environ["OPENAI_API_KEY"] = val
         except Exception:
             pass
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 @app.post("/tasks/run")
@@ -121,7 +125,6 @@ async def run_task(req: RunTaskReq):
     def on_event(evt: Dict[str, Any]):
         job.emit(evt)
 
-    # Ensure index
     try:
         count = build_index(req.repo_path)
         on_event({"type": "index", "count": count})
@@ -130,13 +133,11 @@ async def run_task(req: RunTaskReq):
 
     def worker():
         try:
-            # set env for orchestrator
             if req.max_iters is not None:
                 os.environ["MAX_ITERS"] = str(req.max_iters)
             if req.use_aider is not None:
                 os.environ["USE_AIDER"] = "true" if req.use_aider else "false"
             os.environ["WORKSPACE_DIR"] = req.repo_path
-            # Run orchestrator
             orc = Orchestrator(LLMClient(), SandboxClient(), on_event=on_event)
             io = orc.run_once(goal=req.instruction)
             job.result = {"ok": bool(io.state.get("last_result", {}).get("ok")), "state": io.state}
@@ -166,10 +167,8 @@ async def stream(job_id: str, ws: WebSocket):
     await ws.accept()
     q = job.subscribe()
     try:
-        # Send backlog first
         for evt in job.logs:
             await ws.send_json(evt)
-        # Then stream live
         while True:
             evt = await q.get()
             await ws.send_json(evt)
@@ -187,10 +186,8 @@ async def reindex(req: ReindexReq):
 
 @app.post("/train/sft")
 async def train_sft():
-    # Launch Axolotl via subprocess; user must have it available
     import subprocess
     def worker():
-        # Placeholder: echo; replace with real axolotl command
         subprocess.run(["cmd", "/c", "echo Training SFT... && timeout /t 2 >NUL"], check=False)
     threading.Thread(target=worker, daemon=True).start()
     return {"ok": True}
@@ -214,7 +211,7 @@ async def dataset_counts():
                 if f.endswith(".jsonl"):
                     try:
                         with open(os.path.join(base, f), "r", encoding="utf-8", errors="ignore") as fh:
-                            total += sum(1 for _ in fh if _.strip())
+                            total += sum(1 for line in fh if line.strip())
                     except Exception:
                         pass
         return total
@@ -236,19 +233,16 @@ async def adapters_load(req: LoadAdapterReq):
 @app.post("/eval/run")
 async def eval_run(req: EvalReq):
     import subprocess
-    # Run evaluation script
     proc = subprocess.run(["cmd", "/c", f"python eval\\run_eval.py"], capture_output=True, text=True)
     return {"ok": proc.returncode == 0, "stdout": proc.stdout, "stderr": proc.stderr}
 
 
 @app.post("/settings/save")
 async def settings_save(data: Dict[str, Any]):
-    # Store to .env and Windows Credential Manager for secrets
     openai_key = data.get("OPENAI_API_KEY")
     local_llm = data.get("LOCAL_LLM")
     docker = data.get("USE_DOCKER")
     test_cmd = data.get("TEST_CMD")
-    # write non-secrets to env
     if local_llm:
         os.environ["LOCAL_LLM"] = str(local_llm)
     if docker is not None:
@@ -265,7 +259,6 @@ async def settings_save(data: Dict[str, Any]):
 
 @app.get("/settings")
 async def settings_get():
-    # Never return secrets
     return {
         "LOCAL_LLM": os.getenv("LOCAL_LLM"),
         "USE_DOCKER": os.getenv("USE_DOCKER", "true"),

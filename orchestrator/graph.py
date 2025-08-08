@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Dict, Any, List, Optional, Callable
 import os
 
-from .tools import LLMClient, SandboxClient, AiderWrapper, Patch
+from .tools import LLMClient, SandboxClient, AiderWrapper
 from retrieval.index import query_symbols, build_index
 
 
@@ -61,9 +61,7 @@ class Orchestrator:
             self.log(io, f"Aider output: {out[:500]}", evt_type="aider")
         ok = self.sandbox.apply_patch(patch)
         self.log(io, f"Patch applied: {ok}", evt_type="patch", diff=patch.diff)
-        # commit
-        commit_msg = f"AI patch: {task[:60]}"
-        self._git_commit(commit_msg)
+        # commit only if tests will pass later; we keep staging but commit on green
         return ok
 
     def _git_commit(self, message: str):
@@ -89,6 +87,7 @@ class Orchestrator:
             result = self._test(io)
             io.state["last_result"] = result
             if result.get("ok"):
+                self._git_commit(f"AI patch: {goal[:60]}")
                 self.log(io, "Green build!", evt_type="done")
                 break
             # repair using trace
@@ -97,6 +96,8 @@ class Orchestrator:
             result = self._test(io)
             io.state["last_result"] = result
             if result.get("ok"):
+                self._git_commit(f"AI patch: {goal[:60]}")
                 self.log(io, "Green build after repair!", evt_type="done")
                 break
         return io
+

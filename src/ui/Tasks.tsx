@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
 export function Tasks({ base }: { base: string }) {
   const [repo, setRepo] = useState('')

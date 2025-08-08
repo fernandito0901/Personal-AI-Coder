@@ -11,7 +11,6 @@ import json
 import os
 import subprocess
 import tempfile
-import time
 import glob
 
 try:
@@ -29,18 +28,12 @@ except Exception:  # pragma: no cover
 @dataclass
 class Patch:
     repo_path: str
-    diff: str  # unified diff string or fenced file replacements
+    diff: str  # unified diff string or fenced code blocks
 
 
 # ---------------------- LLM Client ----------------------
 class LLMClient:
-    """Unified LLM client.
-
-    Behavior:
-    - If OPENAI_API_KEY is set: use OpenAI Chat Completions
-      SMART_MODEL for planning and JSON; FAST_MODEL for iterations (fallbacks provided)
-    - Else: use Ollama HTTP API at OLLAMA_HOST with model LOCAL_LLM or default
-    """
+    """Unified LLM client for OpenAI or Ollama."""
 
     def __init__(self, smart: Optional[str] = None, fast: Optional[str] = None):
         self.use_openai = bool(os.getenv("OPENAI_API_KEY")) and OpenAI is not None
@@ -51,10 +44,7 @@ class LLMClient:
         self.fast_model = fast or os.getenv("FAST_MODEL") or (
             "gpt-4o-mini" if self.use_openai else os.getenv("LOCAL_LLM", "qwen2.5-coder:7b-instruct-q4_K_M")
         )
-        if self.use_openai:
-            self._client = OpenAI()
-        else:
-            self._client = None
+        self._client = OpenAI() if self.use_openai else None
 
     # --------------- low-level ---------------
     def _openai_chat(self, system: str, user: str, model: str, temperature: float) -> str:
@@ -71,30 +61,25 @@ class LLMClient:
 
     def _openai_json(self, system: str, user: str, model: str) -> Dict[str, Any]:
         assert self._client is not None
+        resp = self._client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+        text = (resp.choices[0].message.content or "{}").strip()
         try:
-            resp = self._client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                temperature=0,
-                response_format={"type": "json_object"},
-            )
-            text = (resp.choices[0].message.content or "{}").strip()
             return json.loads(text)
         except Exception:
-            # Fallback: best-effort parse
-            text = self._openai_chat(system, user + "\nReturn only JSON.", model, temperature=0)
-            try:
-                return json.loads(text)
-            except Exception:
                 return {"raw": text}
 
     def _ollama_chat(self, system: str, user: str, model: str, temperature: float) -> str:
         if requests is None:
-            return f"[Ollama unavailable] {user[:200]}"
-        url = f"self.ollama_host}/api/chat"
+            return ""
+        url = f"{self.ollama_host}/api/chat"
         payload = {
             "model": model,
             "messages": [
@@ -107,13 +92,11 @@ class LLMClient:
         r = requests.post(url, json=payload, timeout=600)
         r.raise_for_status()
         data = r.json()
-        # Ollama returns messages in data["message"]["content"]
         msg = data.get("message", {}).get("content") or ""
         return msg.strip()
 
     def _ollama_json(self, system: str, user: str, model: str) -> Dict[str, Any]:
         text = self._ollama_chat(system, user + "\nReturn only valid minified JSON.", model, temperature=0)
-        # Best-effort extraction
         start = text.find("{")
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
@@ -132,8 +115,8 @@ class LLMClient:
                 return self._openai_chat(system, user, model, temperature)
             else:
                 return self._ollama_chat(system, user, model, temperature)
-        except Exception as e:  # offline fallback
-            return f""
+        except Exception:
+            return ""
 
     def complete_json(self, system: str, user: str) -> Dict[str, Any]:
         model = self.smart_model
@@ -154,29 +137,28 @@ class LLMClient:
             "```path/to/file\n<entire file content>\n```\n"
             "Do not include commentary outside the patch."
         )
-        ctx = []
+        ctx_parts: List[str] = []
         for s in snippets[:8]:
             code = s.get("code") or s.get("text") or ""
             path = s.get("path") or "unknown"
-            ctx.append(f"Path: {path}\n```path}\ncode}\n```")
+            ctx_parts.append(f"Path: {path}\n```\n{code}\n```")
         user_msg = (
-            f"Task:\ntask}\n\n"
-            f"Relevant snippets (top {len(ctx)}):\n" + "\n\n".join(ctx)
+            f"Task:\n{task}\n\n"
+            f"Relevant snippets (top {len(ctx_parts)}):\n" + "\n\n".join(ctx_parts)
         )
         if trace:
-            user_msg += f"\n\nTest/Run trace:\ntrace}\n"
+            user_msg += f"\n\nTest/Run trace:\n{trace}\n"
         text = self.complete(sys_msg, user_msg, temperature=0.2, fast=False)
-        # If model returned something usable, use it
         if text and (text.startswith("diff --git") or "```" in text):
             return Patch(repo_path=os.getcwd(), diff=text.strip())
-        # Offline heuristic fallback for common demo
+        # Heuristic fallback
         fallback = self._heuristic_patch()
         return Patch(repo_path=os.getcwd(), diff=fallback)
 
     # --------------- helpers ---------------
     def _heuristic_patch(self) -> str:
         # Try to fix a common pattern in tests: add() returning a + b + 1
-        candidates = []
+        candidates: List[str] = []
         for path in glob.glob("**/*.py", recursive=True):
             try:
                 with open(path, "r", encoding="utf-8", errors="ignore") as f:
@@ -190,8 +172,7 @@ class LLMClient:
             with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 txt = f.read()
             new_txt = txt.replace("return a + b + 1", "return a + b")
-            return f"```path}\nnew_txt}\n```"
-        # else, no-op
+            return f"```{path}\n{new_txt}\n```"
         return ""
 
 
@@ -268,10 +249,8 @@ class SandboxClient:
         i = 0
         while i < len(lines):
             if lines[i].startswith("```") and not lines[i].strip().startswith("```diff"):
-                # line like ```path/to/file or ```lang path
                 header = lines[i].strip().strip("`")
                 header_parts = header.split()
-                # Use last token as path when it contains a slash or endswith .py
                 cand = header_parts[-1] if header_parts else ""
                 path = cand if ("/" in cand or cand.endswith(".py")) else ""
                 i += 1
@@ -292,7 +271,6 @@ class SandboxClient:
             cmd = f"docker run --rm -v \"repo}\":/workspace -w /workspace {self.image} {test_cmd}"
             res = subprocess.run(["cmd", "/c", cmd], capture_output=True, text=True)
             return {"ok": res.returncode == 0, "stdout": res.stdout, "stderr": res.stderr, "code": res.returncode}
-        # Fallback: local pytest
         res = subprocess.run(["cmd", "/c", test_cmd], capture_output=True, text=True)
         return {"ok": res.returncode == 0, "stdout": res.stdout, "stderr": res.stderr, "code": res.returncode}
 
