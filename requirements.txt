@@ -2,4 +2,9 @@ pytest
 requests
 openai
 python-dotenv
+fastapi
+uvicorn
+websockets
+keyring
+pydantic
 

@@ -286,8 +286,10 @@ class SandboxClient:
 
     def run_tests(self) -> Dict[str, Any]:
         test_cmd = os.getenv("TEST_CMD", "pytest -q")
-        if os.path.exists("docker/docker-compose.yml"):
-            cmd = f"docker compose -f docker/docker-compose.yml run --rm sandbox {test_cmd}"
+        use_docker = os.getenv("USE_DOCKER", "true").lower() == "true"
+        repo = os.getenv("WORKSPACE_DIR", os.getcwd())
+        if use_docker:
+            cmd = f"docker run --rm -v \"repo}\":/workspace -w /workspace {self.image} {test_cmd}"
             res = subprocess.run(["cmd", "/c", cmd], capture_output=True, text=True)
             return {"ok": res.returncode == 0, "stdout": res.stdout, "stderr": res.stderr, "code": res.returncode}
         # Fallback: local pytest
