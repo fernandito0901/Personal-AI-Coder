@@ -1,0 +1,21 @@
+version: "3.9"
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: ai-coder-sandbox:latest
+    volumes:
+      - ../:/app
+      - ../workspace:/workspace
+    working_dir: /workspace
+    tty: true
+    stdin_open: true
+  sandbox:
+    image: ai-coder-sandbox:latest
+    volumes:
+      - ../:/app
+      - ../workspace:/workspace
+    working_dir: /app
+    entrypoint: ["bash", "-lc", "pytest -q"]
+

@@ -1,0 +1,25 @@
+# QLoRA config for Qwen2.5-Coder-7B-Instruct (skeleton)
+base_model: Qwen/Qwen2.5-Coder-7B-Instruct
+load_in_4bit: true
+bnb_4bit_quant_type: nf4
+lora_r: 16
+lora_alpha: 32
+lora_dropout: 0.05
+val_set_size: 0.02
+epochs: 1
+learning_rate: 2e-5
+warmup_steps: 50
+micro_batch_size: 1
+gradient_accumulation_steps: 8
+save_steps: 500
+output_dir: adapters/sft
+adapter: lora
+cutoff_len: 4096
+datasets:
+  - path: data/task_to_patch/*.jsonl
+    type: jsonl
+  - path: data/error_to_fix/*.jsonl
+    type: jsonl
+  - path: data/api_usage/*.jsonl
+    type: jsonl
+
