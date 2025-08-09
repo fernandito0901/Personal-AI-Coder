@@ -67,8 +67,8 @@ class Orchestrator:
     def _git_commit(self, message: str):
         try:
             subprocess = __import__("subprocess")
-            subprocess.run(["cmd", "/c", "git add -A"], check=False)
-            subprocess.run(["cmd", "/c", f"git commit -m \"message}\""], check=False)
+            subprocess.run(["git", "add", "-A"], check=False)
+            subprocess.run(["git", "commit", "-m", message], check=False)
         except Exception:
             pass
 

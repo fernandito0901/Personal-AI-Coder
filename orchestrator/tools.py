@@ -268,11 +268,21 @@ class SandboxClient:
         use_docker = os.getenv("USE_DOCKER", "true").lower() == "true"
         repo = os.getenv("WORKSPACE_DIR", os.getcwd())
         if use_docker:
-            cmd = f"docker run --rm -v \"repo}\":/workspace -w /workspace {self.image} {test_cmd}"
-            res = subprocess.run(["cmd", "/c", cmd], capture_output=True, text=True)
-            return {"ok": res.returncode == 0, "stdout": res.stdout, "stderr": res.stderr, "code": res.returncode}
-        res = subprocess.run(["cmd", "/c", test_cmd], capture_output=True, text=True)
-        return {"ok": res.returncode == 0, "stdout": res.stdout, "stderr": res.stderr, "code": res.returncode}
+            cmd = f'docker run --rm -v "{repo}":/workspace -w /workspace {self.image} {test_cmd}'
+            res = subprocess.run(cmd, capture_output=True, text=True, shell=True)
+            return {
+                "ok": res.returncode == 0,
+                "stdout": res.stdout,
+                "stderr": res.stderr,
+                "code": res.returncode,
+            }
+        res = subprocess.run(test_cmd, capture_output=True, text=True, shell=True)
+        return {
+            "ok": res.returncode == 0,
+            "stdout": res.stdout,
+            "stderr": res.stderr,
+            "code": res.returncode,
+        }
 
 
 # ---------------------- Aider wrapper ----------------------
