@@ -39,3 +39,16 @@ Notes
 - If docker/docker-compose.yml exists, tests run in Docker; else they run locally.
 - If USE_AIDER=true, aider --yes --no-auto-commit is attempted; otherwise patches are applied directly and committed with message "AI patch".
 - Retrieval index is Python-only today and writes to .ai_index/index.json.
+
+### Desktop UI
+
+Development
+
+- `npm install`
+- Start backend: `uvicorn backend.app:app --host 127.0.0.1 --port 8000`
+- `npm run dev`
+
+Build
+
+- `npm run tauri build`
+- Bundles are written under `src-tauri/target/release/`
